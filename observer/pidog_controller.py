@@ -74,7 +74,7 @@ class PiDogController(Observer):
         print("PiDogController: Envoi WS 'intruderDetected'…")
         payload = {
             "detected_gender": detected_gender,
-            "timestamp": time.time()
+            "timestamp": int(time.time() * 1000)
         }
         self.socket_client.emit_intruder_detected(payload)
 
