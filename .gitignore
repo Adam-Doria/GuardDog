@@ -4,3 +4,29 @@ photo
 test/photo*
 test/scene/*
 backups/*
+# macOS
+.DS_Store
+
+# IDE (PyCharm, IntelliJ)
+.idea/
+
+# Tous les .DS_Store dans les sous-répertoires
+**/.DS_Store
+
+# Fichiers Python compilés
+*.pyc
+__pycache__/
+
+# Fichiers temporaires d’éditeur
+*~
+*.swp
+*.swo
+
+# (Facultatif) Base de données SQLite par défaut de Django
+db.sqlite3
+
+# (Facultatif) Dossier media si vous ne versionnez pas les uploads
+media/
+
+# (Facultatif) Dossier staticfiles généré par collectstatic
+staticfiles/

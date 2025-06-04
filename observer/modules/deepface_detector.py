@@ -5,116 +5,120 @@ from deepface import DeepFace
 import os
 import threading
 import time
-import queue
 
-# Importe Vilib directement car c'est la bibliothèque pour la caméra du PiDog
-from vilib import Vilib 
+from .observer_pattern import Observer
+from .pidog_state      import PiDogState
+from config            import DEEPFACE_CUDA_VISIBLE_DEVICES, DEEPFACE_FRAME_SKIP
 
-from modules.observer_pattern import Observer
-from modules.pidog_state import PiDogState # Pour les constantes de mode
-from config import DEEPFACE_CUDA_VISIBLE_DEVICES, DEEPFACE_FRAME_SKIP
+# On force toujours l'utilisation de la webcam locale (pas de Vilib)
+_try_vilib = False
 
-# Désactive l'utilisation du GPU si configuré
+# Désactiver le GPU si configuré
 os.environ["CUDA_VISIBLE_DEVICES"] = DEEPFACE_CUDA_VISIBLE_DEVICES
 
 class DeepFaceDetector(Observer):
     """
-    Gère la détection de genre via DeepFace dans un thread séparé.
-    Observe le PiDogState pour savoir quand démarrer ou arrêter l'analyse.
-    Utilise Vilib pour l'accès à la caméra.
+    Gère la détection de genre via DeepFace dans un thread séparé,
+    **uniquement** sur la webcam PC (cv2.VideoCapture).
+    Observe PiDogState pour savoir quand démarrer ou arrêter.
     """
     def __init__(self, on_man_detected_callback):
         self._on_man_detected_callback = on_man_detected_callback
         self._detection_thread = None
-        self._running = False  # Flag pour contrôler le thread de détection
-        self._stop_event = threading.Event() # Événement pour signaler l'arrêt du thread
-        self._is_active_for_detection = False # Indique si le détecteur doit activement détecter (basé sur le mode du PiDog)
+        self._running = False
+        self._stop_event = threading.Event()
+        self._is_active_for_detection = False
 
     def update(self, mode):
         """
-        Implémentation de la méthode update de l'Observer.
-        Réagit aux changements de mode du PiDogState.
+        Quand le mode change :
+         - Si mode == MODE_PATROL → on active la détection,
+         - Si mode == MODE_ALERT  → on stoppe la détection.
         """
         if mode == PiDogState.MODE_PATROL:
-            print("DeepFaceDetector: Réactivation pour la détection (mode Patrouille).")
+            print("DeepFaceDetector: Réactivation de la détection (mode PATROL).")
             self._is_active_for_detection = True
             self.start_detection()
         elif mode == PiDogState.MODE_ALERT:
-            print("DeepFaceDetector: Désactivation de la détection (mode Alerte).")
+            print("DeepFaceDetector: Désactivation de la détection (mode ALERT).")
             self._is_active_for_detection = False
             self.stop_detection()
 
     def start_detection(self):
-        """Démarre le thread de détection DeepFace."""
+        """Démarre la thread de détection si pas déjà en cours."""
         if not self._running:
             print("DeepFaceDetector: Démarrage du thread de détection...")
             self._running = True
-            self._stop_event.clear() # S'assurer que l'événement d'arrêt est effacé
-            self._detection_thread = threading.Thread(target=self._detection_loop, name="DeepFaceThread")
+            self._stop_event.clear()
+            self._detection_thread = threading.Thread(
+                target=self._detection_loop, name="DeepFaceThread"
+            )
             self._detection_thread.start()
 
     def stop_detection(self):
-        """Arrête le thread de détection DeepFace."""
+        """Arrête la thread de détection en cours (si active)."""
         if self._running:
             print("DeepFaceDetector: Signal d'arrêt envoyé au thread de détection...")
             self._running = False
-            self._stop_event.set() # Déclencher l'événement d'arrêt
+            self._stop_event.set()
             if self._detection_thread and self._detection_thread.is_alive():
-                self._detection_thread.join(timeout=5) # Attendre la fin du thread
+                self._detection_thread.join(timeout=5)
                 if self._detection_thread.is_alive():
-                    print("DeepFaceDetector: Le thread de détection n'a pas pu s'arrêter proprement.")
+                    print("DeepFaceDetector: Thread de détection n'a pas pu s'arrêter proprement.")
             print("DeepFaceDetector: Thread de détection arrêté.")
 
     def _detection_loop(self):
-        """Boucle principale du thread de détection DeepFace."""
+        """
+        Boucle permanente qui lit la frame depuis la webcam PC,
+        puis envoie à DeepFace.analyze toutes les DEEPFACE_FRAME_SKIP images.
+        """
+        print(f"DeepFaceDetector: (_try_vilib = {_try_vilib}) → tentative d'ouverture de VideoCapture(0)…")
+        cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            print("DeepFaceDetector: Impossible d'ouvrir la webcam locale.")
+            return
+        print("DeepFaceDetector: Webcam locale ouverte avec succès, début du loop.")
+
         frame_count = 0
 
         while self._running and not self._stop_event.is_set():
-            if not Vilib.flask_start: # Attendre que Vilib ait démarré son serveur Flask
-                print("DeepFaceDetector: Vilib.flask_start est False, attente...")
-                time.sleep(1)
-                continue
+            ret, frame = cap.read()
+            if not ret:
+                print("DeepFaceDetector: Erreur lecture webcam.")
+                break
 
-            frame = Vilib.img # Obtenir le dernier frame de Vilib
-            if frame is None:
-                print("DeepFaceDetector: Aucun frame de Vilib.img, attente...")
-                time.sleep(0.5)
-                continue
-
+            frame = cv2.flip(frame, 1)
             frame_count += 1
-            
-            # N'effectuer l'analyse que si le détecteur est actif et au bon rythme
+
             if self._is_active_for_detection and (frame_count % DEEPFACE_FRAME_SKIP == 0):
                 try:
-                    current_faces_data = DeepFace.analyze(
-                        img_path=frame, 
-                        actions=['gender'], 
-                        enforce_detection=False, # Ne pas lancer d'erreur si aucun visage détecté
-                        detector_backend='opencv' 
+                    results = DeepFace.analyze(
+                        img_path=frame,
+                        actions=["gender"],
+                        enforce_detection=False,
+                        detector_backend="opencv"
                     )
-                    
-                    if current_faces_data:
-                        for face_info in current_faces_data:
-                            if 'gender' in face_info and isinstance(face_info['gender'], dict):
-                                gender_prob = face_info['gender']
-                                # Comparer les probabilités pour déterminer le genre dominant
-                                if gender_prob.get('Man', 0) > gender_prob.get('Woman', 0):
-                                    gender = "Man"
-                                    print(f"DeepFaceDetector: Homme détecté! Probabilité: {gender_prob.get('Man', 0):.2f}")
-                                    self._on_man_detected_callback(gender) # Déclencher le callback
-                                else:
-                                    gender = "Woman"
-                                    # print(f"DeepFaceDetector: Femme détectée. Probabilité: {gender_prob.get('Woman', 0):.2f}") # Uncomment for debug
-                            # else:
-                                # print("DeepFaceDetector: Données de genre inattendues.") # Uncomment for debug
-                except ValueError as e:
-                    # print(f"DeepFace: Aucun visage détecté ou confiance trop basse. {e}") # Uncomment for debug
-                    pass # C'est normal de ne pas toujours détecter de visage
+                    if results:
+                        faces = [results] if isinstance(results, dict) else results
+                    else:
+                        faces = []
+                except ValueError:
+                    faces = []
                 except Exception as e:
-                    print(f"DeepFaceDetector: ERREUR INATTENDUE lors de l'analyse : {e}")
-                    pass 
-            
-            # Petite pause pour ne pas saturer le CPU/GPU et laisser d'autres threads s'exécuter
-            time.sleep(0.01) 
-        
+                    print(f"DeepFaceDetector: Erreur DeepFace : {e}")
+                    faces = []
+
+                for face_info in faces:
+                    gender_scores = face_info.get("gender", {})
+                    is_man = gender_scores.get("Man", 0) > gender_scores.get("Woman", 0)
+                    if is_man:
+                        print(f"DeepFaceDetector: Homme détecté ! Proba Man={gender_scores.get('Man', 0):.2f}")
+                        self._on_man_detected_callback("Man")
+                        self._is_active_for_detection = False
+                        self._running = False
+                        break
+
+            time.sleep(0.01)
+
+        cap.release()
         print("DeepFaceDetector: Boucle de détection terminée.")
