@@ -10,10 +10,8 @@ from .observer_pattern import Observer
 from .pidog_state      import PiDogState
 from config            import DEEPFACE_CUDA_VISIBLE_DEVICES, DEEPFACE_FRAME_SKIP
 
-# On force toujours l'utilisation de la webcam locale (pas de Vilib)
-_try_vilib = False
+_try_vilib = False 
 
-# Désactiver le GPU si configuré
 os.environ["CUDA_VISIBLE_DEVICES"] = DEEPFACE_CUDA_VISIBLE_DEVICES
 
 class DeepFaceDetector(Observer):
@@ -28,6 +26,7 @@ class DeepFaceDetector(Observer):
         self._running = False
         self._stop_event = threading.Event()
         self._is_active_for_detection = False
+        self._man_detection_streak = 0 
 
     def update(self, mode):
         """
@@ -43,13 +42,14 @@ class DeepFaceDetector(Observer):
             print("DeepFaceDetector: Désactivation de la détection (mode ALERT).")
             self._is_active_for_detection = False
             self.stop_detection()
-
+            self._man_detection_streak = 0 
     def start_detection(self):
         """Démarre la thread de détection si pas déjà en cours."""
         if not self._running:
             print("DeepFaceDetector: Démarrage du thread de détection...")
             self._running = True
             self._stop_event.clear()
+            self._man_detection_streak = 0 
             self._detection_thread = threading.Thread(
                 target=self._detection_loop, name="DeepFaceThread"
             )
@@ -61,6 +61,7 @@ class DeepFaceDetector(Observer):
             print("DeepFaceDetector: Signal d'arrêt envoyé au thread de détection...")
             self._running = False
             self._stop_event.set()
+            self._man_detection_streak = 0 
             if self._detection_thread and self._detection_thread.is_alive():
                 self._detection_thread.join(timeout=5)
                 if self._detection_thread.is_alive():
@@ -91,32 +92,51 @@ class DeepFaceDetector(Observer):
             frame_count += 1
 
             if self._is_active_for_detection and (frame_count % DEEPFACE_FRAME_SKIP == 0):
+                faces_detected_in_frame = []
                 try:
                     results = DeepFace.analyze(
                         img_path=frame,
                         actions=["gender"],
-                        enforce_detection=False,
+                        enforce_detection=True,
                         detector_backend="opencv"
                     )
                     if results:
-                        faces = [results] if isinstance(results, dict) else results
-                    else:
-                        faces = []
+                        faces_detected_in_frame = [results] if isinstance(results, dict) else results
+                 
                 except ValueError:
-                    faces = []
+                    print("DeepFaceDetector: Pas de visage détecté ou erreur de format pour cette frame.")
+                    faces_detected_in_frame = []
                 except Exception as e:
-                    print(f"DeepFaceDetector: Erreur DeepFace : {e}")
-                    faces = []
+                    print(f"DeepFaceDetector: Erreur inattendue DeepFace : {e}")
+                    faces_detected_in_frame = []
 
-                for face_info in faces:
+                found_man_in_current_analyzed_frame = False
+                for face_info in faces_detected_in_frame:
+                    print(f"DeepFaceDetector: Analyse de visage: {face_info}")
+                    dominant_gender = face_info.get("dominant_gender")
                     gender_scores = face_info.get("gender", {})
-                    is_man = gender_scores.get("Man", 0) > gender_scores.get("Woman", 0)
-                    if is_man:
-                        print(f"DeepFaceDetector: Homme détecté ! Proba Man={gender_scores.get('Man', 0):.2f}")
-                        self._on_man_detected_callback("Man")
-                        self._is_active_for_detection = False
-                        self._running = False
+                    man_prob = gender_scores.get("Man", 0)
+
+                    if dominant_gender == "Man" and man_prob > 85:
+                        print(f"DeepFaceDetector: Homme détecté ! Proba Man={man_prob:.2f}%")
+                        found_man_in_current_analyzed_frame = True
                         break
+
+                if found_man_in_current_analyzed_frame:
+                    self._man_detection_streak += 1
+                    print(f"DeepFaceDetector: Série de détections d'homme: {self._man_detection_streak} / 2")
+                else:
+                    if self._man_detection_streak > 0:
+                        print(f"DeepFaceDetector: Pas d'homme détecté dans cette frame ou proba trop faible, réinitialisation de la série.")
+                    self._man_detection_streak = 0
+
+                if self._man_detection_streak >= 2:
+                    print("DeepFaceDetector: Homme détecté 3 fois consécutives, envoi de l'alerte !")
+                    self._on_man_detected_callback("Man")
+                    
+                    self._is_active_for_detection = False
+                    self._running = False
+                    self._man_detection_streak = 0
 
             time.sleep(0.01)
 
