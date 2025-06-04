@@ -1,102 +1,172 @@
 # modules/pidog_hardware_interface.py
 
 import time
-import os
-from pidog import Pidog # Importe la classe Pidog de la bibliothèque SunFounder
-from vilib import Vilib # Importe Vilib pour la caméra
-from config import PATROL_DANGER_DISTANCE_CM, ALERT_BARK_DURATION_SEC
 
-class PiDogHardware:
-    """
-    Interface réelle pour contrôler le PiDog SunFounder.
-    Encapsule les appels à la bibliothèque Pidog.
-    """
-    def __init__(self):
-        print("PiDogHardware: Initialisation de l'interface matérielle réelle...")
-        try:
-            self.my_dog = Pidog() # Instancie le chien Pidog
-            print("PiDogHardware: Pidog initialisé.")
-            # Initialiser la caméra Vilib une seule fois au démarrage
-            Vilib.camera_start(vflip=False, hflip=False)
-            Vilib.display(local=False, web=True) # Affichage web de la caméra si nécessaire
-            # Attendre que le serveur Flask de Vilib soit prêt (vu dans gpt_examples/gpt_dog.py)
-            while not Vilib.flask_start:
-                time.sleep(0.01)
-            print("PiDogHardware: Caméra Vilib démarrée.")
-        except Exception as e:
-            print(f"PiDogHardware ERROR: Impossible d'initialiser Pidog ou Vilib: {e}")
-            # Gérer l'erreur, potentiellement quitter ou fonctionner en mode dégradé
-            self.my_dog = None # Assurez-vous que my_dog est None si l'initialisation échoue
-            raise RuntimeError(f"Échec de l'initialisation du matériel PiDog: {e}")
+# ----------------------------------------------------------------
+# On teste si la bibliothèque PiDog (SunFounder) et Vilib sont disponibles.
+# Si non, on crée une classe StubPiDogHardware qui fait simplement des prints/no-ops.
+# ----------------------------------------------------------------
+_try_import = True
+try:
+    from pidog import Pidog       # True PiDog hardware
+    from vilib import Vilib        # True Vilib camera
+except Exception as e:
+    _try_import = False
 
-    def _wait_dog_actions_done(self):
-        """Attends que toutes les actions du chien soient terminées."""
-        if self.my_dog:
-            self.my_dog.wait_all_done()
-            time.sleep(0.1) # Petite pause pour laisser le temps aux servos de se stabiliser
+# ----------------------------------------------------------------
+# Si import a échoué → on définit une classe stub
+# ----------------------------------------------------------------
+if not _try_import:
+    class PiDogHardware:
+        """
+        Version de substitution (stub) pour s'exécuter sur un PC sans PiDog ni Vilib.
+        Toutes les méthodes font simplement un print et ne fassent rien.
+        """
+        def __init__(self):
+            print("PiDogHardware (STUB) : pas de PiDog/Vilib présent, je ne fais que logger.")
+            self.my_dog = None
 
-    def start_patrol(self):
-        """Met le chien en mode patrouille (mouvements) et allume la lumière."""
-        if not self.my_dog: return
-        print("PiDogHardware: Démarrage de la patrouille.")
-        self.my_dog.rgb_strip.set_mode('breath', 'white', bps=0.5)
-        self.my_dog.do_action('stand', speed=80)
-        self._wait_dog_actions_done()
-        self.my_dog.do_action('forward', step_count=2, speed=98)
-        self._wait_dog_actions_done()
-        # Simulation d'un virage aléatoire ou autre logique de patrouille
-        # Pour une patrouille continue, on laisserait 'forward' dans une boucle externe ou ici.
-        # Ici, j'ajoute un virage pour l'exemple.
-        self.my_dog.do_action('turn_left', step_count=1, speed=98)
-        self._wait_dog_actions_done()
+        def _wait_dog_actions_done(self):
+            # Rien à attendre dans le stub
+            pass
 
+        def start_patrol(self):
+            print("PiDogHardware (STUB) : start_patrol() appelé → aucun hardware.")
 
-    def stop_patrol(self):
-        """Arrête les mouvements de patrouille du chien."""
-        if not self.my_dog: return
-        print("PiDogHardware: Arrêt de la patrouille.")
-        self.my_dog.body_stop()
-        self.my_dog.rgb_strip.close() # Éteindre la lumière ou changer de mode
-        self._wait_dog_actions_done()
+        def stop_patrol(self):
+            print("PiDogHardware (STUB) : stop_patrol() appelé → aucun hardware.")
 
-    def start_barking(self):
-        """Fait aboyer le chien et change le mode RGB en alerte."""
-        if not self.my_dog: return
-        print("PiDogHardware: Début des aboiements (alerte)!")
-        self.my_dog.rgb_strip.set_mode('bark', 'red', bps=2)
-        # Utiliser un aboiement plus "agressif"
-        self.my_dog.speak('angry', volume=100) # Assurez-vous que 'angry.mp3' ou 'angry.wav' existe dans sounds/
-        # Optionnel: faire une posture d'alerte
-        self.my_dog.do_action('sit', speed=70) # ou une autre action d'alerte
-        self._wait_dog_actions_done()
+        def start_barking(self):
+            print("PiDogHardware (STUB) : start_barking() appelé → aucun hardware.")
 
-    def stop_barking(self):
-        """Arrête les aboiements du chien."""
-        if not self.my_dog: return
-        print("PiDogHardware: Arrêt des aboiements.")
-        # La bibliothèque Pidog ne semble pas avoir un stop_sound direct pour un son en cours.
-        # On peut soit laisser le son se terminer, soit changer rapidement de mode pour l'interrompre.
-        # Pour cet exemple, nous allons juste attendre que le son se termine si c'était un son court,
-        # ou changer le mode RGB pour indiquer la fin de l'alerte.
-        self.my_dog.rgb_strip.set_mode('breath', 'white', bps=0.5) # Retour à une lumière neutre
-        # Le music.sound_play_threading est non bloquant, donc il n'y a pas de "stop" direct ici,
-        # le son se termine de lui-même après sa durée.
+        def stop_barking(self):
+            print("PiDogHardware (STUB) : stop_barking() appelé → aucun hardware.")
 
-    def get_distance(self):
-        """Lit la distance du capteur ultrasonique."""
-        if not self.my_dog: return -1
-        return self.my_dog.read_distance()
+        def get_distance(self):
+            # Retour par défaut : aucune donnée (on simule “pas d’obstacle”)
+            return -1
 
-    def get_vilib_image(self):
-        """Retourne le dernier frame de la caméra Vilib."""
-        if not Vilib.flask_start: # S'assurer que Vilib est démarré
+        def get_vilib_image(self):
+            # Retourne None, pas de caméra
             return None
-        return Vilib.img
 
-    def close_all_hardware(self):
-        """Arrête toutes les actions du chien et ferme la caméra Vilib."""
-        if not self.my_dog: return
-        print("PiDogHardware: Arrêt de toutes les actions matérielles et fermeture de la caméra.")
-        self.my_dog.close() # Méthode de nettoyage complète de la classe Pidog
-        Vilib.camera_close()
-        print("PiDogHardware: Matériel PiDog et Vilib fermés.")
+        def close_all_hardware(self):
+            print("PiDogHardware (STUB) : close_all_hardware() appelé → aucun hardware.")
+
+# ----------------------------------------------------------------
+# Si import a réussi → on définit la classe réelle
+# ----------------------------------------------------------------
+else:
+    class PiDogHardware:
+        """
+        Interface matérielle réelle pour PiDog SunFounder + Vilib.
+        Encapsule les appels à la bibliothèque Pidog et Vilib.
+        """
+        def __init__(self):
+            print("PiDogHardware: Initialisation du matériel PiDog + Vilib…")
+            try:
+                self.my_dog = Pidog()
+                print("PiDogHardware: Pidog initialisé.")
+                Vilib.camera_start(vflip=False, hflip=False)
+                Vilib.display(local=False, web=True)
+                # Attendre que Vilib soit prêt
+                while not Vilib.flask_start:
+                    time.sleep(0.01)
+                print("PiDogHardware: Caméra Vilib démarrée.")
+            except Exception as e:
+                print(f"PiDogHardware ERROR: Impossible d'initialiser Pidog/Vilib → {e}")
+                self.my_dog = None
+
+        def _wait_dog_actions_done(self):
+            if self.my_dog:
+                self.my_dog.wait_all_done()
+                time.sleep(0.1)
+
+        def start_patrol(self):
+            if not self.my_dog:
+                print("PiDogHardware: (start_patrol) Pas de Pidog, no-op.")
+                return
+            print("PiDogHardware: Démarrage de la patrouille matérielle.")
+            # Allumer un mode LED blanc “patrouille”
+            try:
+                self.my_dog.rgb_strip.set_mode('breath', 'white', bps=0.5)
+            except Exception:
+                pass
+            # Exécuter quelques actions “stand” puis “forward” (exemple)
+            try:
+                self.my_dog.do_action('stand', speed=80)
+                self._wait_dog_actions_done()
+                self.my_dog.do_action('forward', step_count=2, speed=98)
+                self._wait_dog_actions_done()
+                # Simuler un virage aléatoire
+                self.my_dog.do_action('turn_left', step_count=1, speed=98)
+                self._wait_dog_actions_done()
+            except Exception:
+                pass
+
+        def stop_patrol(self):
+            if not self.my_dog:
+                print("PiDogHardware: (stop_patrol) Pas de Pidog, no-op.")
+                return
+            print("PiDogHardware: Arrêt de la patrouille matérielle.")
+            try:
+                self.my_dog.body_stop()
+                self.my_dog.rgb_strip.close()
+                self._wait_dog_actions_done()
+            except Exception:
+                pass
+
+        def start_barking(self):
+            if not self.my_dog:
+                print("PiDogHardware: (start_barking) Pas de Pidog, no-op.")
+                return
+            print("PiDogHardware: Début aboiement (alerte) !")
+            try:
+                self.my_dog.rgb_strip.set_mode('bark', 'red', bps=2)
+                self.my_dog.speak('angry', volume=100)
+                self.my_dog.do_action('sit', speed=70)
+                self._wait_dog_actions_done()
+            except Exception:
+                pass
+
+        def stop_barking(self):
+            if not self.my_dog:
+                print("PiDogHardware: (stop_barking) Pas de Pidog, no-op.")
+                return
+            print("PiDogHardware: Arrêt des aboiements.")
+            try:
+                self.my_dog.rgb_strip.set_mode('breath', 'white', bps=0.5)
+            except Exception:
+                pass
+
+        def get_distance(self):
+            if not self.my_dog:
+                return -1
+            try:
+                return self.my_dog.read_distance()
+            except Exception:
+                return -1
+
+        def get_vilib_image(self):
+            if not self.my_dog:
+                return None
+            # On suppose que Vilib.flask_start est True (vu dans init)
+            try:
+                return Vilib.img
+            except Exception:
+                return None
+
+        def close_all_hardware(self):
+            if not self.my_dog:
+                print("PiDogHardware: (close_all_hardware) Pas de Pidog, no-op.")
+                return
+            print("PiDogHardware: Arrêt complet du matériel PiDog et Vilib.")
+            try:
+                self.my_dog.close()
+            except Exception:
+                pass
+            try:
+                Vilib.camera_close()
+            except Exception:
+                pass
+            print("PiDogHardware: Matériel arrêté.")

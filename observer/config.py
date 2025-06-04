@@ -2,7 +2,7 @@
 # Fichier de configuration pour le projet PiDog
 
 # URL du serveur Socket.IO
-SOCKET_IO_SERVER_URL = "http://127.0.0.1:4500" 
+SERVER_URL = "http://127.0.0.1:4500"
 
 
 ROBOT_ID = "chien-001" 
