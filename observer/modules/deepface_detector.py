@@ -10,7 +10,7 @@ from .observer_pattern import Observer
 from .pidog_state      import PiDogState
 from config            import DEEPFACE_CUDA_VISIBLE_DEVICES, DEEPFACE_FRAME_SKIP
 
-_try_vilib = False 
+_try_vilib = True
 
 os.environ["CUDA_VISIBLE_DEVICES"] = DEEPFACE_CUDA_VISIBLE_DEVICES
 
