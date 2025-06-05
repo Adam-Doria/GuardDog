@@ -42,6 +42,7 @@ class DeepFaceDetector(Observer):
         self._stop_event = threading.Event()
         self._is_active_for_detection = False
         self._man_detection_streak = 0
+        self._last_detected_frame = None
         print("DeepFaceDetector: Initialisé.")
 
     def update(self, mode):
@@ -59,6 +60,8 @@ class DeepFaceDetector(Observer):
             self._is_active_for_detection = False
             self.stop_detection()
             self._man_detection_streak = 0
+            self._last_detected_frame = None
+             
         else:
             print(f"DeepFaceDetector: Mode '{mode}' non géré par le détecteur, détection arrêtée.")
             self._is_active_for_detection = False
@@ -71,6 +74,7 @@ class DeepFaceDetector(Observer):
             self._running = True
             self._stop_event.clear()
             self._man_detection_streak = 0
+            self._last_detected_frame = None
             self._detection_thread = threading.Thread(
                 target=self._detection_loop, name="DeepFaceThread"
             )
@@ -86,6 +90,7 @@ class DeepFaceDetector(Observer):
             self._running = False
             self._stop_event.set()
             self._man_detection_streak = 0
+            self._last_detected_frame = None
             if self._detection_thread and self._detection_thread.is_alive():
                 self._detection_thread.join(timeout=5) # Attendre que le thread se termine
                 if self._detection_thread.is_alive():
@@ -175,20 +180,27 @@ class DeepFaceDetector(Observer):
 
                 if found_man_in_current_analyzed_frame:
                     self._man_detection_streak += 1
+                    self._last_detected_frame = frame
                     print(f"DeepFaceDetector: Série de détections d'homme: {self._man_detection_streak} / 2")
                 else:
                     if self._man_detection_streak > 0:
                         print(f"DeepFaceDetector: Pas d'homme détecté dans cette frame ou proba trop faible, réinitialisation de la série.")
                     self._man_detection_streak = 0
+                    self._last_detected_frame = None
 
-             
                 if self._man_detection_streak >= 2:
                     print("DeepFaceDetector: Homme détecté 2 fois consécutives, envoi de l'alerte !")
-                    self._on_man_detected_callback("Man") 
+                    base64_img = ""
+                    if self._last_detected_frame is not None:
+                        _, buffer = cv2.imencode('.jpg', self._last_detected_frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                        base64_img = base64.b64encode(buffer).decode('utf-8')
+                        
+                    self._on_man_detected_callback("Man",base64_img) 
                     
                     self._is_active_for_detection = False
                     self._running = False 
                     self._man_detection_streak = 0
+                    self._last_detected_frame = None
                     print("DeepFaceDetector: Alerte homme envoyée, détection arrêtée.")
                     break
 
