@@ -955,3 +955,21 @@ class Pidog():
 
     def get_battery_voltage(self):
         return round( utils.get_battery_voltage(), 2)
+
+
+import os
+import sys
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+OBSERVER_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, os.pardir, "observer"))
+if OBSERVER_DIR not in sys.path:
+    sys.path.append(OBSERVER_DIR)
+
+if __name__ == "__main__":
+    try:
+        from main import main as pidog_main_entry
+    except ImportError:
+        print(f"[pidog.py] Impossible d’importer observer/main.py depuis {OBSERVER_DIR}")
+    else:
+        pidog_main_entry()
+
