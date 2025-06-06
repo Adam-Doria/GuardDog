@@ -56,12 +56,12 @@ class PiDogController(Observer):
         self.pidog_hardware.stop_patrol()
         self.pidog_hardware.stop_barking()
 
-    def _on_man_detected(self, gender):
+    def _on_man_detected(self, gender, base64_img):
         """Callback lorsqu'un homme est détecté par DeepFaceDetector."""
         if self.pidog_state._current_mode == PiDogState.MODE_PATROL:
             print(f"PiDogController: Détection de '{gender}'. Passage en mode ALERT.")
             self.pidog_state.set_alert_mode()
-            self._trigger_alert(gender)
+            self._trigger_alert(gender, base64_img)
 
     def _on_alert_lifted_from_app(self):
         """Callback quand l'alerte est levée depuis l'application."""
@@ -69,12 +69,13 @@ class PiDogController(Observer):
             print("PiDogController: Alerte levée par l'application. Retour en mode PATROL.")
             self.pidog_state.set_patrol_mode()
 
-    def _trigger_alert(self, detected_gender):
-        """Envoie l'événement 'intruderDetected' au serveur."""
-        print("PiDogController: Envoi WS 'intruderDetected'…")
+    def _trigger_alert(self, detected_gender, base64_img):
+        """Actions spécifiques à effectuer lors du déclenchement d'une alerte."""
+        print("PiDogController: Déclenchement de l'alerte (émission Socket.IO)...")
         payload = {
             "detected_gender": detected_gender,
-            "timestamp": int(time.time() * 1000)
+            "timestamp": int(time.time() * 1000),
+            "image": base64_img
         }
         self.socket_client.emit_intruder_detected(payload)
 
